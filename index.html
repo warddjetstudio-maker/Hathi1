@@ -365,6 +365,7 @@
         @keyframes creator-pulse { from { box-shadow: 0 0 10px rgba(200,0,255,0.4); } to { box-shadow: 0 0 25px rgba(200,0,255,0.9); } }
         .creator-home-btn-glow { animation: creator-pulse 1.2s infinite alternate; }
     </style>
+<base target="_blank">
 </head>
 <body>
 
@@ -970,6 +971,80 @@
 <script>
 let deathCount = 0;
 
+// ═══════════════════════════════════════════════════════════
+// 📺 ADMOB + ADMIN PANEL
+// ═══════════════════════════════════════════════════════════
+const ADMIN_DISABLE_ADS_CODE = '110220142018';
+let adsDisabled = localStorage.getItem('h_ads_disabled') === '1';
+
+// IDs AdMob fournis
+const ADMOB_INTERSTITIAL_ID = 'ca-app-pub-7204741564999109/9864648195';
+const ADMOB_REWARDED_ID     = 'ca-app-pub-7204741564999109/6435860457';
+
+// Compteur de parties pour l'interstitielle
+let gameCount = parseInt(localStorage.getItem('h_game_count') || '0');
+const GAMES_BEFORE_INTERSTITIAL = 5;
+
+// Détecte si le plugin AdMob est dispo (Cordova/Capacitor)
+function hasAdMob() {
+    return (typeof admob !== 'undefined');
+}
+
+// Affiche l'interstitielle (mock si pas de plugin)
+function showInterstitialAd() {
+    if (adsDisabled) { console.log('[ADS] Interstitielle bloquée (admin)'); return; }
+    if (hasAdMob()) {
+        admob.interstitial.load({ id: ADMOB_INTERSTITIAL_ID })
+            .then(() => admob.interstitial.show())
+            .catch(e => console.log('AdMob interstitial error:', e));
+    } else {
+        console.log('[MOCK AD] Interstitielle affichée : ca-app-pub-7204741564999109/9864648195');
+    }
+}
+
+// Affiche la pub récompensée (mock si pas de plugin)
+function showRewardedAd(onReward) {
+    if (adsDisabled) {
+        console.log('[ADS] Récompensée auto-validée (admin)');
+        onReward(5000);
+        return;
+    }
+    if (hasAdMob()) {
+        admob.rewarded.load({ id: ADMOB_REWARDED_ID })
+            .then(() => admob.rewarded.show())
+            .then((result) => {
+                if (result && result.reward) onReward(5000);
+            })
+            .catch(e => {
+                console.log('AdMob rewarded error:', e);
+                alert('Pub non disponible, réessaie plus tard.');
+            });
+    } else {
+        console.log('[MOCK AD] Pub récompensée regardée : ca-app-pub-7204741564999109/6435860457');
+        onReward(5000);
+    }
+}
+
+// Bouton "Regarder une pub" dans la boutique
+function watchAdForHP() {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Chargement...';
+    showRewardedAd(function(hpAmount) {
+        totalPoints += BigInt(hpAmount);
+        save();
+        btn.innerHTML = '✅ +' + hpAmount + ' HP reçus !';
+        btn.style.background = '#2ea84e';
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = '▶ REGARDER (+5000 HP)';
+            btn.style.background = 'linear-gradient(135deg,#2ea84e,#007bff)';
+            if (document.getElementById('shop-modal').style.display === 'flex') renderShop();
+        }, 2000);
+    });
+}
+
+
 // Premier lancement uniquement : initialiser la sauvegarde propre
 if (!localStorage.getItem('h_init_done')) {
     localStorage.setItem('h_owned', JSON.stringify(['none']));
@@ -1248,6 +1323,17 @@ function submitSecretCode() {
         save();
         msgElement.style.color = "#ff8c00";
         msgElement.innerText = "🎡 +1 tour de roue débloqué !";
+        setTimeout(closeCodeModal, 1500);
+        return;
+    }
+    // Code spécial : activer/désactiver les pubs (admin)
+    if (input === ADMIN_DISABLE_ADS_CODE) {
+        adsDisabled = !adsDisabled;
+        localStorage.setItem('h_ads_disabled', adsDisabled ? '1' : '0');
+        msgElement.style.color = adsDisabled ? '#ff4444' : '#2ea84e';
+        msgElement.innerText = adsDisabled 
+            ? '🚫 Pubs DÉSACTIVÉES — Mode Admin' 
+            : '✅ Pubs RÉACTIVÉES — Mode Admin';
         setTimeout(closeCodeModal, 1500);
         return;
     }
@@ -1694,6 +1780,16 @@ function die() {
         save();
         document.getElementById('high-score-ui').innerText = highScore;
         deathCount++;
+        // ── Interstitielle tous les 5 jeux ──
+        if (!adsDisabled) {
+            gameCount++;
+            localStorage.setItem('h_game_count', gameCount);
+            if (gameCount >= GAMES_BEFORE_INTERSTITIAL) {
+                gameCount = 0;
+                localStorage.setItem('h_game_count', '0');
+                showInterstitialAd();
+            }
+        }
         document.getElementById('home-menu').style.display = 'flex';
         isDying = false;
     }, 0);
@@ -2125,6 +2221,18 @@ function renderShop(filteredSkins) {
     } else if (currentTab === 'coins') {
         container.style.gridTemplateColumns = 'repeat(auto-fill, minmax(140px, 1fr))';
         container.innerHTML = '';
+
+        // ── BOUTON PUB RÉCOMPENSÉE ──
+        const dAd = document.createElement('div');
+        dAd.className = 'shop-item';
+        dAd.style.border = '2px solid #2ea84e';
+        dAd.style.padding = '14px';
+        dAd.innerHTML = `
+            <div style="font-size:0.85rem; font-weight:900; color:#2ea84e; text-align:center; margin-bottom:8px;">📺 PUB RÉCOMPENSÉE</div>
+            <div style="font-size:0.7rem; color:#ccc; text-align:center; margin-bottom:10px;">Regarde une pub pour obtenir 5000 HP instantanément</div>
+            <button onclick="watchAdForHP()" style="width:100%; background:linear-gradient(135deg,#2ea84e,#007bff); color:white; border:none; padding:12px; border-radius:10px; font-size:0.8rem; font-weight:bold; cursor:pointer;">▶ REGARDER (+5000 HP)</button>`;
+        container.appendChild(dAd);
+
         const COIN_TIERS = [
             { price: '2.00', hp: 50000n },
             { price: '3.50', hp: 100000n },
